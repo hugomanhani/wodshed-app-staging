@@ -57,10 +57,11 @@ function getActiveEquipmentList(state) {
   if (!loc) return [];
   const list = loc.simple.slice();
   if (loc.barbell && loc.barbell.has) list.push('barbell');
-  if (loc.kettlebells && loc.kettlebells.weights.length) list.push('kettlebell');
-  if (loc.dumbbells && loc.dumbbells.weights.length) {
+  if (kbWeightNumbers(loc).length) list.push('kettlebell');
+  const dbWeights = dbWeightObjs(loc);
+  if (dbWeights.length) {
     list.push('dumbbell');
-    if (loc.dumbbells.weights.some(w => w.unit === 'pair')) list.push('dumbbell_pair');
+    if (dbWeights.some(w => w.unit === 'pair')) list.push('dumbbell_pair');
   }
   // 'canrun' (what the Run exercise actually checks) is available if either
   // outdoor running is realistic OR a treadmill is owned — either one covers it.
@@ -68,11 +69,36 @@ function getActiveEquipmentList(state) {
   return list;
 }
 
+// Kettlebells/dumbbells can be owned as an adjustable bell AND a rack of
+// fixed ones at once — each is gated by its own 'has' toggle, so a group
+// that's off never leaks its (possibly still-populated) weights into eligibility.
+function kbWeightNumbers(loc) {
+  if (!loc) return [];
+  const adj = (loc.kbAdjustable && loc.kbAdjustable.has) ? loc.kbAdjustable.weights : [];
+  const fix = (loc.kbFixed && loc.kbFixed.has) ? loc.kbFixed.weights : [];
+  return [...adj, ...fix];
+}
+function dbWeightObjs(loc) {
+  if (!loc) return [];
+  const adj = (loc.dbAdjustable && loc.dbAdjustable.has) ? loc.dbAdjustable.weights : [];
+  const fix = (loc.dbFixed && loc.dbFixed.has) ? loc.dbFixed.weights : [];
+  return [...adj, ...fix];
+}
 function dbWeightNumbers(loc) {
-  return loc && loc.dumbbells ? loc.dumbbells.weights.map(w => w.weight) : [];
+  return dbWeightObjs(loc).map(w => w.weight);
 }
 function dbPairWeightNumbers(loc) {
-  return loc && loc.dumbbells ? loc.dumbbells.weights.filter(w => w.unit === 'pair').map(w => w.weight) : [];
+  return dbWeightObjs(loc).filter(w => w.unit === 'pair').map(w => w.weight);
+}
+
+// Bumper/Iron Plates are independent toggles from Barbell — a plate group
+// that's off never contributes weight even if its items array still has
+// entries from before it was switched off.
+function ownedPlates(loc) {
+  if (!loc) return [];
+  const bumper = (loc.bumperPlates && loc.bumperPlates.has) ? loc.bumperPlates.items : [];
+  const iron = (loc.ironPlates && loc.ironPlates.has) ? loc.ironPlates.items : [];
+  return [...bumper, ...iron];
 }
 
 // A gym can own several bar types (Oly, trap, EZ-curl...) at once. Load math
@@ -83,25 +109,28 @@ function primaryBarWeight(barbell) {
   return 45;
 }
 
-function maxBarbellLoad(barbell) {
+function maxBarbellLoad(loc) {
+  const barbell = loc && loc.barbell;
   if (!barbell || !barbell.has) return 0;
-  const platesWeight = barbell.plates.reduce((sum, p) => sum + p.weight * 2 * Math.floor(p.count / 2), 0);
+  const platesWeight = ownedPlates(loc).reduce((sum, p) => sum + p.weight * 2 * p.pairs, 0);
   return primaryBarWeight(barbell) + platesWeight;
 }
 
-function barbellIncrement(barbell) {
-  if (!barbell || !barbell.plates.length) return 5;
-  const smallest = barbell.plates.filter(p => p.count >= 2).reduce((min, p) => Math.min(min, p.weight), Infinity);
+function barbellIncrement(loc) {
+  const plates = ownedPlates(loc);
+  if (!plates.length) return 5;
+  const smallest = plates.filter(p => p.pairs >= 1).reduce((min, p) => Math.min(min, p.weight), Infinity);
   return isFinite(smallest) ? smallest * 2 : 5;
 }
 
 // Rounds a suggested barbell weight down to something actually loadable from
 // the owned plate inventory, never exceeding the max the plates allow.
-function clampBarbellWeight(barbell, suggestion) {
+function clampBarbellWeight(loc, suggestion) {
+  const barbell = loc && loc.barbell;
   if (!barbell || !barbell.has) return suggestion;
   const bw = primaryBarWeight(barbell);
-  const max = maxBarbellLoad(barbell);
-  const inc = barbellIncrement(barbell);
+  const max = maxBarbellLoad(loc);
+  const inc = barbellIncrement(loc);
   let target = Math.min(suggestion, max);
   target = bw + Math.floor((target - bw) / inc) * inc;
   return Math.max(bw, target);
@@ -122,10 +151,18 @@ function stepOwnedWeight(weights, current, dir) {
   return sorted[nextIdx];
 }
 
+// Profile > Skills lets the athlete turn individual movements off entirely,
+// independent of equipment ownership — folded in here so every existing
+// equipment-eligibility filter (templateEligible, pickWodMovements, generateSkill,
+// generateCore, generateWarmup) respects it automatically with no extra call sites.
+function skillEnabled(exId) {
+  return !(Store.state.disabledExercises || []).includes(exId);
+}
+
 function equipmentEligible(exId, userEquip) {
   const ex = exerciseById(exId);
   if (!ex) return false;
-  return hasEquip(userEquip, ex.equip);
+  return hasEquip(userEquip, ex.equip) && skillEnabled(exId);
 }
 
 function lruPick(ids, lruMap, bonusMap) {
@@ -200,7 +237,7 @@ function suggestNextLoad(state, liftId) {
   if (!l || l.history.length === 0) {
     const startWeight = DEFAULT_START_WEIGHT[liftId] || 45;
     const startLoc = getActiveLocation(state);
-    return (startLoc && startLoc.barbell && startLoc.barbell.has) ? clampBarbellWeight(startLoc.barbell, startWeight) : startWeight;
+    return (startLoc && startLoc.barbell && startLoc.barbell.has) ? clampBarbellWeight(startLoc, startWeight) : startWeight;
   }
   const hist = l.history;
   const lastEntry = hist[hist.length - 1];
@@ -242,7 +279,7 @@ function suggestNextLoad(state, liftId) {
 
   suggestion = Math.max(inc, suggestion);
   const loc = getActiveLocation(state);
-  if (loc && loc.barbell && loc.barbell.has) suggestion = clampBarbellWeight(loc.barbell, suggestion);
+  if (loc && loc.barbell && loc.barbell.has) suggestion = clampBarbellWeight(loc, suggestion);
   return suggestion;
 }
 
@@ -348,7 +385,7 @@ function accessoryWeightGuess(moveId, loc) {
   const base = DEFAULT_ACCESSORY_WEIGHT[moveId];
   if (base == null) return 0;
   const ex = exerciseById(moveId);
-  if (loc && ex.equip.includes('kettlebell') && loc.kettlebells.weights.length) return nearestOwnedWeight(loc.kettlebells.weights, base);
+  if (loc && ex.equip.includes('kettlebell') && kbWeightNumbers(loc).length) return nearestOwnedWeight(kbWeightNumbers(loc), base);
   if (loc && ex.equip.includes('dumbbell_pair')) {
     const pairs = dbPairWeightNumbers(loc);
     if (pairs.length) return nearestOwnedWeight(pairs, base);
@@ -357,7 +394,7 @@ function accessoryWeightGuess(moveId, loc) {
     const nums = dbWeightNumbers(loc);
     if (nums.length) return nearestOwnedWeight(nums, base);
   }
-  if (loc && ex.equip.includes('barbell') && loc.barbell.has) return clampBarbellWeight(loc.barbell, base);
+  if (loc && ex.equip.includes('barbell') && loc.barbell.has) return clampBarbellWeight(loc, base);
   return base;
 }
 

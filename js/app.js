@@ -11,6 +11,7 @@ const ICON = {
   weight: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="9" width="3" height="6" rx="1"/><rect x="4.5" y="7" width="2.5" height="10" rx="1"/><rect x="17" y="7" width="2.5" height="10" rx="1"/><rect x="19.5" y="9" width="3" height="6" rx="1"/><line x1="7" y1="12" x2="17" y2="12"/></svg>',
   history: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2"/><path d="M9 2h6"/></svg>',
   kettlebell: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 8.5a2.5 2.5 0 0 1 5 0V10h-5V8.5z"/><circle cx="12" cy="15.5" r="6"/></svg>',
+  person: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>',
   plus: '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>',
   trash: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="2,4 14,4"/><path d="M5 4V2.5A1.5 1.5 0 0 1 6.5 1h3A1.5 1.5 0 0 1 11 2.5V4"/><path d="M4 4l.6 9a1.5 1.5 0 0 0 1.5 1.4h3.8a1.5 1.5 0 0 0 1.5-1.4L12 4"/></svg>',
   edit: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3-7.5 7.5-3.8 1 1-3.8z"/><path d="M9.2 3.8l3 3"/></svg>',
@@ -27,6 +28,7 @@ const UI = {
   coreRound: 1, coreIntervalIndex: 0, corePhase: 'work', coreChecks: [], pendingResult: null, running: false,
   activityType: null, activityCustomType: '', activityDuration: 30, activityNotes: '', nextSection: null,
   scrollPos: {}, // pill-row scroll-left by data-skey — survives the next full re-render
+  profileTab: 'equipment', // 'equipment' | 'skills' — sub-tab within Profile
 };
 
 function app() { return document.getElementById('app'); }
@@ -44,7 +46,7 @@ function render() {
   else if (UI.screen === 'nextPreview') html = renderNextPreviewScreen();
   else if (UI.screen === 'summary') html = renderSummary();
   else if (UI.screen === 'log') html = renderShell(renderLog(), 'log');
-  else if (UI.screen === 'equipment') html = renderShell(renderEquipmentTab(), 'equipment');
+  else if (UI.screen === 'profile') html = renderShell(renderProfileTab(), 'profile');
 
   if (UI.dialog) html += renderDialog();
   if (UI.sheet) html += renderSheet();
@@ -106,7 +108,7 @@ function renderShell(innerHtml, activeTab) {
 
 function renderBottomNav(active) {
   const item = (key, icon, label) => `<button class="nav-item ${active === key ? 'active' : ''}" onclick="App.goTab('${key}')">${icon}<span>${label}</span></button>`;
-  return `<div class="bottomnav">${item('today', ICON.weight, 'Today')}${item('log', ICON.history, 'Log')}${item('equipment', ICON.kettlebell, 'Equipment')}</div>`;
+  return `<div class="bottomnav">${item('today', ICON.weight, 'Today')}${item('log', ICON.history, 'Log')}${item('profile', ICON.person, 'Profile')}</div>`;
 }
 
 function infoBtn(key) { return `<button class="info-btn" onclick="App.showInfo('${key}')">i</button>`; }
@@ -195,120 +197,136 @@ function locationHeaderHtml(loc) {
   </div>`;
 }
 
-function weightChipListHtml(weights, addFn, removeFn, commonList, skeyPrefix) {
-  const owned = weights.map(w => `<div class="preset-chip active" style="display:flex;align-items:center;gap:6px" onclick="${removeFn}(${w})">${w} lb ✕</div>`).join('');
-  const addable = commonList.filter(w => !weights.includes(w)).map(w =>
-    `<div class="preset-chip" style="border-style:dashed" onclick="${addFn}(${w})">+ ${w}</div>`).join('');
-  return `<div class="preset-row" data-skey="${skeyPrefix}-owned" style="padding:0 0 var(--space-2)">${owned}</div><div class="preset-row" data-skey="${skeyPrefix}-add" style="padding:0">${addable}</div>`;
+// ─── Weight display units (lb canonical everywhere in storage; this is a
+// display-only conversion, never touches what's actually saved) ────────────
+function fmtW(lb) {
+  if (Store.state.units === 'kg') return String(Math.round(lb * 0.453592 * 2) / 2);
+  return String(lb);
+}
+function fmtWLabel(lb) { return `${fmtW(lb)} ${Store.state.units}`; }
+
+// ─── Shared building blocks for the flat, consistent Profile > Equipment list ─
+
+function toggleRow(label, on, onClick) {
+  return `<div class="equip-toggle" onclick="${onClick}"><span>${label}</span><div class="switch ${on ? 'on' : ''}"></div></div>`;
 }
 
-function plateGroupHtml(loc, type, label, commonList) {
-  const rows = loc.barbell.plates.map((p, i) => ({ p, i })).filter(x => x.p.type === type);
-  const rowsHtml = rows.map(({ p, i }) => `<div class="equip-toggle">
-      <span>${p.weight} lb</span>
+function selectAllRowHtml(selectFn, deselectFn) {
+  return `<div style="display:flex;gap:8px;padding:0 var(--space-4) var(--space-4)">
+    <button class="btn btn-secondary" style="flex:1" onclick="${selectFn}">Select All</button>
+    <button class="btn btn-secondary" style="flex:1" onclick="${deselectFn}">Deselect All</button>
+  </div>`;
+}
+
+function unitsRowHtml() {
+  const u = Store.state.units;
+  return `<div class="equip-group">
+    <div class="equip-toggle" style="cursor:default"><span>Units</span>
+      <div style="display:flex;gap:6px">
+        <div class="preset-chip ${u === 'lb' ? 'active' : ''}" onclick="App.setUnits('lb')">lb</div>
+        <div class="preset-chip ${u === 'kg' ? 'active' : ''}" onclick="App.setUnits('kg')">kg</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// A deletable "line" for one owned variant (a bar type, a plate weight) with
+// 1-2 steppable fields — the shared pattern behind Barbell and Bumper/Iron Plates.
+function gearLineHtml(label, fields, removeFn) {
+  const fieldsHtml = fields.map(f => `
+    <div class="gear-line-row">
+      <span class="gear-line-label">${f.label}</span>
       <div class="stepper-controls">
-        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustPlateCount(${i},-2)">−</button>
-        <div class="stepper-val" style="min-width:40px;height:32px;font-size:16px">${p.count}</div>
-        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustPlateCount(${i},2)">+</button>
-        <button class="info-btn" onclick="App.removePlate(${i})">✕</button>
+        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="${f.decFn}">−</button>
+        <div class="stepper-val" style="min-width:44px;height:32px;font-size:16px">${f.value}</div>
+        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="${f.incFn}">+</button>
       </div>
     </div>`).join('');
-  const addable = commonList.filter(w => !loc.barbell.plates.some(p => p.type === type && p.weight === w)).map(w =>
-    `<div class="preset-chip" style="border-style:dashed" onclick="App.addPlate(${w},'${type}')">+ ${w}</div>`).join('');
-  return `<div class="section-sub" style="padding:var(--space-2) 0 4px">${label}:</div>${rowsHtml}<div class="preset-row" data-skey="plates-${type}" style="padding:4px 0 0">${addable}</div>`;
+  return `<div class="gear-line">
+    <div class="gear-line-head"><span>${label}</span><button class="info-btn" onclick="${removeFn}">✕</button></div>
+    ${fieldsHtml}
+  </div>`;
 }
 
-function barbellSectionHtml(loc) {
+function barbellBlockHtml(loc) {
   const b = loc.barbell;
-  const toggle = `<div class="equip-toggle" onclick="App.toggleBarbellHas()">
-    <span>Barbell</span><div class="switch ${b.has ? 'on' : ''}"></div>
-  </div>`;
-  if (!b.has) return `<div class="equip-group"><div class="equip-group-label">Barbell & Plates</div>${toggle}</div>`;
-
-  const owned = b.bars || [];
-  const barChips = BAR_TYPES.map(t => {
-    const on = owned.some(x => x.type === t.id);
-    return `<div class="preset-chip ${on ? 'active' : ''}" onclick="App.toggleBarType('${t.id}')">${t.label}</div>`;
-  }).join('');
-  const barRows = owned.map((bar, i) => {
+  if (!b.has) return `<div class="equip-group">${toggleRow('Barbell', false, "App.toggleBarbellHas()")}</div>`;
+  const addPills = BAR_TYPES.filter(t => !b.bars.some(x => x.type === t.id))
+    .map(t => `<div class="preset-chip" style="border-style:dashed" onclick="App.addBar('${t.id}')">+ ${t.label}</div>`).join('');
+  const lines = b.bars.map((bar, i) => {
     const t = BAR_TYPES.find(x => x.id === bar.type);
-    return `<div class="equip-toggle" style="cursor:default">
-      <span>${t ? t.label : bar.type}</span>
-      <div class="stepper-controls">
-        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustBarTypeWeight(${i},-5)">−</button>
-        <div class="stepper-val" style="min-width:48px;height:32px">${bar.weight}</div>
-        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustBarTypeWeight(${i},5)">+</button>
-      </div>
-    </div>`;
+    return gearLineHtml(t ? t.label : bar.type, [
+      { label: 'Weight', value: fmtW(bar.weight), decFn: `App.adjustBarWeight(${i},-5)`, incFn: `App.adjustBarWeight(${i},5)` },
+      { label: 'Qty', value: bar.count, decFn: `App.adjustBarCount(${i},-1)`, incFn: `App.adjustBarCount(${i},1)` },
+    ], `App.removeBar(${i})`);
   }).join('');
-
   return `<div class="equip-group">
-    <div class="equip-group-label">Barbell & Plates</div>
-    ${toggle}
-    <div class="section-sub" style="padding:var(--space-2) 0 4px">Bar types owned — pick as many as you've got</div>
-    <div class="preset-row" data-skey="bar-types" style="padding:0 0 var(--space-2)">${barChips}</div>
-    ${owned.length ? barRows : `<div class="section-sub" style="padding:0 0 var(--space-2)">Pick at least one bar above so we know what it weighs.</div>`}
-    ${plateGroupHtml(loc, 'bumper', 'Bumper plates owned (per pair)', COMMON_BUMPER_WEIGHTS)}
-    ${plateGroupHtml(loc, 'iron', 'Iron plates owned (per pair)', COMMON_IRON_WEIGHTS)}
-    <div class="card" style="margin-top:var(--space-2)"><div class="section-meta">Max loadable: <strong style="color:var(--color-text)">${maxBarbellLoad(b)} lb</strong></div></div>
+    ${toggleRow('Barbell', true, "App.toggleBarbellHas()")}
+    <div class="preset-row" data-skey="bar-add" style="padding:var(--space-2) var(--space-4) 0">${addPills}</div>
+    ${lines || `<div class="section-sub" style="padding:4px var(--space-4) var(--space-2)">Pick a bar type above.</div>`}
+    <div class="card" style="margin:var(--space-2) var(--space-4) 0"><div class="section-meta">Max loadable: <strong style="color:var(--color-text)">${fmtWLabel(maxBarbellLoad(loc))}</strong></div></div>
   </div>`;
 }
 
-function kettlebellSectionHtml(loc) {
-  const kb = loc.kettlebells;
-  const modeChips = ['adjustable', 'fixed'].map(m =>
-    `<div class="preset-chip ${kb.mode === m ? 'active' : ''}" onclick="App.setKbMode('${m}')">${m === 'adjustable' ? 'Single Adjustable' : 'Multiple Fixed'}</div>`).join('');
+function plateBlockHtml(loc, kind, label, commonList) {
+  const p = loc[kind];
+  if (!p.has) return `<div class="equip-group">${toggleRow(label, false, `App.togglePlateGroup('${kind}')`)}</div>`;
+  const addPills = commonList.filter(w => !p.items.some(x => x.weight === w))
+    .map(w => `<div class="preset-chip" style="border-style:dashed" onclick="App.addPlateItem('${kind}',${w})">+ ${fmtW(w)}</div>`).join('');
+  const lines = p.items.map((item, i) => gearLineHtml('Plate', [
+    { label: 'Weight', value: fmtW(item.weight), decFn: `App.adjustPlateWeight('${kind}',${i},-2.5)`, incFn: `App.adjustPlateWeight('${kind}',${i},2.5)` },
+    { label: 'Pairs', value: item.pairs, decFn: `App.adjustPlatePairs('${kind}',${i},-1)`, incFn: `App.adjustPlatePairs('${kind}',${i},1)` },
+  ], `App.removePlateItem('${kind}',${i})`)).join('');
   return `<div class="equip-group">
-    <div class="equip-group-label">Kettlebells</div>
-    <div class="preset-row" data-skey="kb-mode" style="padding:0 0 var(--space-2)">${modeChips}</div>
-    ${kb.mode === 'adjustable' ? `<div class="section-sub" style="padding-top:0">One bell — weights it can be set to. Swapping mid-set isn't realistic, so the workout won't ask for two different loads back to back.</div>` : `<div class="section-sub" style="padding-top:0">Each fixed weight you own.</div>`}
-    ${weightChipListHtml(kb.weights, 'App.addKbWeight', 'App.removeKbWeight', COMMON_KB_WEIGHTS, 'kb-weights')}
+    ${toggleRow(label, true, `App.togglePlateGroup('${kind}')`)}
+    <div class="preset-row" data-skey="${kind}-add" style="padding:var(--space-2) var(--space-4) 0">${addPills}</div>
+    ${lines || `<div class="section-sub" style="padding:4px var(--space-4) var(--space-2)">Pick a weight above.</div>`}
   </div>`;
 }
 
-function dumbbellSectionHtml(loc) {
-  const db = loc.dumbbells;
-  const modeChips = ['adjustable', 'fixed'].map(m =>
-    `<div class="preset-chip ${db.mode === m ? 'active' : ''}" onclick="App.setDbMode('${m}')">${m === 'adjustable' ? 'Adjustable' : 'Multiple'}</div>`).join('');
-  const rows = db.weights.map((w, i) => `<div class="equip-toggle">
-      <span>${w.weight} lb</span>
+function kbBlockHtml(loc, kind, label) {
+  const kb = loc[kind];
+  if (!kb.has) return `<div class="equip-group">${toggleRow(label, false, `App.toggleKb('${kind}')`)}</div>`;
+  const owned = kb.weights.map(w => `<div class="preset-chip active" style="display:flex;align-items:center;gap:6px" onclick="App.removeKbWeight('${kind}',${w})">${fmtWLabel(w)} ✕</div>`).join('');
+  const addable = COMMON_KB_WEIGHTS.filter(w => !kb.weights.includes(w)).map(w =>
+    `<div class="preset-chip" style="border-style:dashed" onclick="App.addKbWeight('${kind}',${w})">+ ${fmtW(w)}</div>`).join('');
+  return `<div class="equip-group">
+    ${toggleRow(label, true, `App.toggleKb('${kind}')`)}
+    <div class="preset-row" data-skey="${kind}-owned" style="padding:var(--space-2) var(--space-4) 0">${owned}</div>
+    <div class="preset-row" data-skey="${kind}-add" style="padding:4px var(--space-4) var(--space-2)">${addable}</div>
+  </div>`;
+}
+
+function dbBlockHtml(loc, kind, label) {
+  const db = loc[kind];
+  if (!db.has) return `<div class="equip-group">${toggleRow(label, false, `App.toggleDb('${kind}')`)}</div>`;
+  const rows = db.weights.map((w, i) => `<div class="equip-toggle" style="padding-left:var(--space-4);padding-right:var(--space-4)">
+      <span>${fmtWLabel(w.weight)}</span>
       <div class="stepper-controls">
-        <button class="preset-chip ${w.unit === 'single' ? 'active' : ''}" style="padding:6px 10px;font-size:12px" onclick="App.setDbUnit(${i},'single')">Single</button>
-        <button class="preset-chip ${w.unit === 'pair' ? 'active' : ''}" style="padding:6px 10px;font-size:12px" onclick="App.setDbUnit(${i},'pair')">Pair</button>
-        <button class="info-btn" onclick="App.removeDbWeight(${w.weight})">✕</button>
+        <button class="preset-chip ${w.unit === 'single' ? 'active' : ''}" style="padding:6px 10px;font-size:12px" onclick="App.setDbUnit('${kind}',${i},'single')">Single</button>
+        <button class="preset-chip ${w.unit === 'pair' ? 'active' : ''}" style="padding:6px 10px;font-size:12px" onclick="App.setDbUnit('${kind}',${i},'pair')">Pair</button>
+        <button class="info-btn" onclick="App.removeDbWeight('${kind}',${w.weight})">✕</button>
       </div>
     </div>`).join('');
   const addable = COMMON_DB_WEIGHTS.filter(w => !db.weights.some(x => x.weight === w)).map(w =>
-    `<div class="preset-chip" style="border-style:dashed" onclick="App.addDbWeight(${w})">+ ${w}</div>`).join('');
+    `<div class="preset-chip" style="border-style:dashed" onclick="App.addDbWeight('${kind}',${w})">+ ${fmtW(w)}</div>`).join('');
   return `<div class="equip-group">
-    <div class="equip-group-label">Dumbbells</div>
-    <div class="preset-row" data-skey="db-mode" style="padding:0 0 var(--space-2)">${modeChips}</div>
-    <div class="section-sub" style="padding-top:0">Mark each weight as a matched pair or a single unit — movements that need two hands only get prescribed if you own a pair.</div>
+    ${toggleRow(label, true, `App.toggleDb('${kind}')`)}
     ${rows}
-    <div class="preset-row" data-skey="db-add" style="padding:var(--space-2) 0 0">${addable}</div>
+    <div class="preset-row" data-skey="${kind}-add" style="padding:var(--space-2) var(--space-4) 0">${addable}</div>
   </div>`;
 }
 
-function simpleGroupHtml(g, loc) {
-  const rows = g.items.map(it => {
-    const on = loc.simple.includes(it.id);
-    return `<div class="equip-toggle" onclick="App.toggleSimpleEquip('${it.id}')">
-      <span>${it.label}</span><div class="switch ${on ? 'on' : ''}"></div>
-    </div>`;
+function equipmentBlocksHtml(loc) {
+  return PROFILE_EQUIPMENT_LAYOUT.map(item => {
+    if (item.kind === 'simple') return `<div class="equip-group">${toggleRow(item.label, loc.simple.includes(item.id), `App.toggleSimpleEquip('${item.id}')`)}</div>`;
+    if (item.kind === 'barbell') return barbellBlockHtml(loc);
+    if (item.kind === 'bumperPlates') return plateBlockHtml(loc, 'bumperPlates', item.label, COMMON_BUMPER_WEIGHTS);
+    if (item.kind === 'ironPlates') return plateBlockHtml(loc, 'ironPlates', item.label, COMMON_IRON_WEIGHTS);
+    if (item.kind === 'kbAdjustable' || item.kind === 'kbFixed') return kbBlockHtml(loc, item.kind, item.label);
+    if (item.kind === 'dbAdjustable' || item.kind === 'dbFixed') return dbBlockHtml(loc, item.kind, item.label);
+    return '';
   }).join('');
-  const note = g.id === 'machines'
-    ? `<div class="section-sub" style="padding:0 0 var(--space-2)">Turn off "Running outdoors" if it isn't realistic for you (injury, no safe route, weather) — Run still shows up if you own a treadmill. With both off, WODs use another conditioning movement instead.</div>` : '';
-  return `<div class="equip-group"><div class="equip-group-label">${g.label}</div>${note}${rows}</div>`;
-}
-
-function locationEditorHtml(loc) {
-  const rackBench = EQUIPMENT_GROUPS.find(g => g.id === 'barbell_plates');
-  const restGroups = EQUIPMENT_GROUPS.filter(g => g.id !== 'barbell_plates');
-  return `${barbellSectionHtml(loc)}
-    ${simpleGroupHtml(rackBench, loc)}
-    ${kettlebellSectionHtml(loc)}
-    ${dumbbellSectionHtml(loc)}
-    ${restGroups.map(g => simpleGroupHtml(g, loc)).join('')}`;
 }
 
 function renderOnboarding() {
@@ -318,20 +336,41 @@ function renderOnboarding() {
       <h1>Welcome to WODshed</h1>
       <p class="section-sub" style="padding:0;margin-top:8px">Tell us what you've got — toggle it on below. You can add more locations (like a commercial gym) later.</p>
     </div>
-    <div class="scroll-content">${locationEditorHtml(loc)}</div>
+    <div class="scroll-content">${unitsRowHtml()}${equipmentBlocksHtml(loc)}</div>
     <div class="onboard-footer">
       <button class="btn btn-primary btn-block" onclick="App.finishOnboarding()">Continue</button>
     </div>
   </div>`;
 }
 
-function renderEquipmentTab() {
-  const loc = getActiveLocation(Store.state);
-  return `<div class="section-heading">Equipment</div>
-  <div class="section-sub">Switch locations for a garage day vs. a commercial-gym day — changes apply to your next generated day.</div>
-  ${locationSwitcherHtml()}
+function renderProfileEquipment(loc) {
+  return `${locationSwitcherHtml()}
   ${locationHeaderHtml(loc)}
-  ${locationEditorHtml(loc)}
+  ${unitsRowHtml()}
+  ${selectAllRowHtml('App.selectAllEquipment()', 'App.deselectAllEquipment()')}
+  ${equipmentBlocksHtml(loc)}`;
+}
+
+function renderProfileSkills() {
+  const disabled = Store.state.disabledExercises || [];
+  const sorted = [...EXERCISES].sort((a, b) => a.name.localeCompare(b.name));
+  const rows = sorted.map(ex => `<div class="equip-group">${toggleRow(ex.name, !disabled.includes(ex.id), `App.toggleSkill('${ex.id}')`)}</div>`).join('');
+  return `<div class="section-sub">Every movement WODshed can prescribe — turn one off to keep it out of your workouts entirely.</div>
+  ${selectAllRowHtml('App.selectAllSkills()', 'App.deselectAllSkills()')}
+  ${rows}`;
+}
+
+function renderProfileTab() {
+  const loc = getActiveLocation(Store.state);
+  const tab = UI.profileTab;
+  const switcher = `<div class="preset-row" data-skey="profile-tabs">
+    <div class="preset-chip ${tab === 'equipment' ? 'active' : ''}" onclick="App.setProfileTab('equipment')">Equipment</div>
+    <div class="preset-chip ${tab === 'skills' ? 'active' : ''}" onclick="App.setProfileTab('skills')">Skills</div>
+  </div>`;
+  return `<div class="section-heading">Profile</div>
+  <div class="section-sub">${tab === 'equipment' ? 'Switch locations for a garage day vs. a commercial-gym day — changes apply to your next generated day.' : 'Choose which movements are fair game for your workouts.'}</div>
+  ${switcher}
+  ${tab === 'equipment' ? renderProfileEquipment(loc) : renderProfileSkills()}
   <div style="padding:var(--space-4)">
     <button class="btn btn-danger btn-block" onclick="App.confirmReset()">Reset All Data</button>
   </div>`;
@@ -421,12 +460,12 @@ function warmupMoveList(warmup) {
 }
 
 function skillMetaBlock(skill) {
-  if (skill.shape === 'A') return metaBlock(`${skill.scheme.length} Sets · ${skill.scheme.join('-')} reps`, [`@ ${skill.weight} lb`]);
+  if (skill.shape === 'A') return metaBlock(`${skill.scheme.length} Sets · ${skill.scheme.join('-')} reps`, [`@ ${fmtWLabel(skill.weight)}`]);
   if (skill.shape === 'B') {
     const desc = skill.secHold ? `${skill.secHold}s Hold` : `${skill.reps} Reps`;
     return metaBlock(`EMOM ${skill.rounds}'`, [`Odd: ${desc} ${skill.oddName}`, `Even: ${desc} ${skill.evenName}`]);
   }
-  const lines = skill.moveNames.map((n, i) => `${skill.reps} ${n}${skill.weighted[i] ? ' @ ' + skill.weights[i] + ' lb' : ''}`);
+  const lines = skill.moveNames.map((n, i) => `${skill.reps} ${n}${skill.weighted[i] ? ' @ ' + fmtWLabel(skill.weights[i]) : ''}`);
   return metaBlock(`${skill.rounds} Sets`, lines);
 }
 function coreMetaBlock(core) {
@@ -512,7 +551,7 @@ function renderSkillBody(skill) {
       <div class="big-time">${reps}<span style="font-size:18px;color:var(--color-neutral-500)"> reps</span></div>
       <div class="weight-row">
         <button class="stepper-btn" onclick="App.adjustWeight(-1)">−</button>
-        <div class="weight-value">${UI.skillWeight}<span class="unit"> lb</span></div>
+        <div class="weight-value">${fmtW(UI.skillWeight)}<span class="unit"> ${Store.state.units}</span></div>
         <button class="stepper-btn" onclick="App.adjustWeight(1)">+</button>
       </div>
       ${rest}
@@ -542,7 +581,7 @@ function renderSkillBody(skill) {
         <div>${skill.reps} ${n}</div>
         <div style="display:flex;align-items:center;gap:6px">
           <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustWeightC(${i},-5)">−</button>
-          <div style="min-width:52px;text-align:center;font-variant-numeric:tabular-nums">${UI.skillWeightsC[i]} lb</div>
+          <div style="min-width:52px;text-align:center;font-variant-numeric:tabular-nums">${fmtWLabel(UI.skillWeightsC[i])}</div>
           <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustWeightC(${i},5)">+</button>
         </div>
       </div>`;
@@ -910,87 +949,148 @@ const App = {
   toggleBarbellHas() {
     const loc = getActiveLocation(Store.state);
     loc.barbell.has = !loc.barbell.has;
-    if (loc.barbell.has && (!loc.barbell.bars || loc.barbell.bars.length === 0)) loc.barbell.bars = [{ type: 'oly_m', weight: 45 }];
-    if (loc.barbell.has && loc.barbell.plates.length === 0) loc.barbell.plates = DEFAULT_PLATE_SET.map(p => ({ ...p }));
+    if (loc.barbell.has && loc.barbell.bars.length === 0) loc.barbell.bars = [{ type: 'oly_m', weight: 45, count: 1 }];
     Store.save(); render();
   },
-  toggleBarType(id) {
+  addBar(typeId) {
     const loc = getActiveLocation(Store.state);
-    if (!loc.barbell.bars) loc.barbell.bars = [];
-    const idx = loc.barbell.bars.findIndex(x => x.type === id);
-    if (idx >= 0) {
-      loc.barbell.bars.splice(idx, 1);
-    } else {
-      const t = BAR_TYPES.find(x => x.id === id);
-      loc.barbell.bars.push({ type: id, weight: (t && t.weight != null) ? t.weight : 45 });
-    }
+    if (loc.barbell.bars.some(b => b.type === typeId)) return;
+    const t = BAR_TYPES.find(x => x.id === typeId);
+    loc.barbell.bars.push({ type: typeId, weight: (t && t.weight != null) ? t.weight : 45, count: 1 });
     Store.save(); render();
   },
-  adjustBarTypeWeight(i, d) {
+  removeBar(i) {
+    const loc = getActiveLocation(Store.state);
+    loc.barbell.bars.splice(i, 1);
+    Store.save(); render();
+  },
+  adjustBarWeight(i, d) {
     const loc = getActiveLocation(Store.state);
     const bar = loc.barbell.bars[i];
     bar.weight = Math.min(65, Math.max(10, bar.weight + d));
     Store.save(); render();
   },
-  addPlate(weight, type) {
+  adjustBarCount(i, d) {
     const loc = getActiveLocation(Store.state);
-    if (loc.barbell.plates.some(p => p.weight === weight && p.type === type)) return;
-    loc.barbell.plates.push({ weight, count: 2, type });
-    loc.barbell.plates.sort((a, b) => b.weight - a.weight);
-    Store.save(); render();
-  },
-  removePlate(i) {
-    const loc = getActiveLocation(Store.state);
-    loc.barbell.plates.splice(i, 1);
-    Store.save(); render();
-  },
-  adjustPlateCount(i, d) {
-    const loc = getActiveLocation(Store.state);
-    loc.barbell.plates[i].count = Math.max(0, loc.barbell.plates[i].count + d);
+    const bar = loc.barbell.bars[i];
+    bar.count = Math.max(1, bar.count + d);
     Store.save(); render();
   },
 
-  // ─ Kettlebells ─
-  setKbMode(mode) {
+  // ─ Bumper / Iron Plates (kind: 'bumperPlates' | 'ironPlates') ─
+  togglePlateGroup(kind) {
     const loc = getActiveLocation(Store.state);
-    loc.kettlebells.mode = mode;
-    Store.save(); render();
-  },
-  addKbWeight(w) {
-    const loc = getActiveLocation(Store.state);
-    if (!loc.kettlebells.weights.includes(w)) { loc.kettlebells.weights.push(w); loc.kettlebells.weights.sort((a, b) => a - b); }
-    Store.save(); render();
-  },
-  removeKbWeight(w) {
-    const loc = getActiveLocation(Store.state);
-    loc.kettlebells.weights = loc.kettlebells.weights.filter(x => x !== w);
-    Store.save(); render();
-  },
-
-  // ─ Dumbbells ─
-  setDbMode(mode) {
-    const loc = getActiveLocation(Store.state);
-    loc.dumbbells.mode = mode;
-    Store.save(); render();
-  },
-  addDbWeight(w) {
-    const loc = getActiveLocation(Store.state);
-    if (!loc.dumbbells.weights.some(x => x.weight === w)) {
-      loc.dumbbells.weights.push({ weight: w, unit: 'pair' });
-      loc.dumbbells.weights.sort((a, b) => a.weight - b.weight);
+    const grp = loc[kind];
+    grp.has = !grp.has;
+    if (grp.has && grp.items.length === 0) {
+      const type = kind === 'bumperPlates' ? 'bumper' : 'iron';
+      grp.items = DEFAULT_PLATE_SET.filter(p => p.type === type).map(p => ({ weight: p.weight, pairs: p.pairs }));
     }
     Store.save(); render();
   },
-  removeDbWeight(w) {
+  addPlateItem(kind, weight) {
     const loc = getActiveLocation(Store.state);
-    loc.dumbbells.weights = loc.dumbbells.weights.filter(x => x.weight !== w);
+    loc[kind].items.push({ weight, pairs: 1 });
+    loc[kind].items.sort((a, b) => b.weight - a.weight);
     Store.save(); render();
   },
-  setDbUnit(i, unit) {
+  removePlateItem(kind, i) {
     const loc = getActiveLocation(Store.state);
-    loc.dumbbells.weights[i].unit = unit;
+    loc[kind].items.splice(i, 1);
     Store.save(); render();
   },
+  adjustPlateWeight(kind, i, d) {
+    const loc = getActiveLocation(Store.state);
+    const item = loc[kind].items[i];
+    item.weight = Math.max(1, Math.round((item.weight + d) * 2) / 2);
+    Store.save(); render();
+  },
+  adjustPlatePairs(kind, i, d) {
+    const loc = getActiveLocation(Store.state);
+    const item = loc[kind].items[i];
+    item.pairs = Math.max(0, item.pairs + d);
+    Store.save(); render();
+  },
+
+  // ─ Kettlebells (kind: 'kbAdjustable' | 'kbFixed') ─
+  toggleKb(kind) {
+    const loc = getActiveLocation(Store.state);
+    loc[kind].has = !loc[kind].has;
+    Store.save(); render();
+  },
+  addKbWeight(kind, w) {
+    const loc = getActiveLocation(Store.state);
+    const arr = loc[kind].weights;
+    if (!arr.includes(w)) { arr.push(w); arr.sort((a, b) => a - b); }
+    Store.save(); render();
+  },
+  removeKbWeight(kind, w) {
+    const loc = getActiveLocation(Store.state);
+    loc[kind].weights = loc[kind].weights.filter(x => x !== w);
+    Store.save(); render();
+  },
+
+  // ─ Dumbbells (kind: 'dbAdjustable' | 'dbFixed') ─
+  toggleDb(kind) {
+    const loc = getActiveLocation(Store.state);
+    loc[kind].has = !loc[kind].has;
+    Store.save(); render();
+  },
+  addDbWeight(kind, w) {
+    const loc = getActiveLocation(Store.state);
+    const arr = loc[kind].weights;
+    if (!arr.some(x => x.weight === w)) { arr.push({ weight: w, unit: 'pair' }); arr.sort((a, b) => a.weight - b.weight); }
+    Store.save(); render();
+  },
+  removeDbWeight(kind, w) {
+    const loc = getActiveLocation(Store.state);
+    loc[kind].weights = loc[kind].weights.filter(x => x.weight !== w);
+    Store.save(); render();
+  },
+  setDbUnit(kind, i, unit) {
+    const loc = getActiveLocation(Store.state);
+    loc[kind].weights[i].unit = unit;
+    Store.save(); render();
+  },
+
+  // ─ Units / Select-all ─
+  setUnits(u) { Store.state.units = u; Store.save(); render(); },
+  selectAllEquipment() {
+    const loc = getActiveLocation(Store.state);
+    loc.barbell.has = true;
+    if (loc.barbell.bars.length === 0) loc.barbell.bars = [{ type: 'oly_m', weight: 45, count: 1 }];
+    ['bumperPlates', 'ironPlates'].forEach(kind => {
+      loc[kind].has = true;
+      if (loc[kind].items.length === 0) {
+        const type = kind === 'bumperPlates' ? 'bumper' : 'iron';
+        loc[kind].items = DEFAULT_PLATE_SET.filter(p => p.type === type).map(p => ({ weight: p.weight, pairs: p.pairs }));
+      }
+    });
+    loc.kbAdjustable.has = true; loc.kbFixed.has = true;
+    loc.dbAdjustable.has = true; loc.dbFixed.has = true;
+    loc.simple = ALL_SIMPLE_EQUIPMENT.slice();
+    Store.save(); render();
+  },
+  deselectAllEquipment() {
+    const loc = getActiveLocation(Store.state);
+    loc.barbell.has = false;
+    loc.bumperPlates.has = false; loc.ironPlates.has = false;
+    loc.kbAdjustable.has = false; loc.kbFixed.has = false;
+    loc.dbAdjustable.has = false; loc.dbFixed.has = false;
+    loc.simple = [];
+    Store.save(); render();
+  },
+
+  // ─ Skills ─
+  toggleSkill(id) {
+    const idx = Store.state.disabledExercises.indexOf(id);
+    if (idx >= 0) Store.state.disabledExercises.splice(idx, 1); else Store.state.disabledExercises.push(id);
+    Store.save(); render();
+  },
+  selectAllSkills() { Store.state.disabledExercises = []; Store.save(); render(); },
+  deselectAllSkills() { Store.state.disabledExercises = EXERCISES.map(e => e.id); Store.save(); render(); },
+
+  setProfileTab(tab) { UI.profileTab = tab; render(); },
 
   finishOnboarding() {
     Store.state.onboarded = true;
@@ -1132,9 +1232,9 @@ const App = {
     const s = Store.state.today.skill;
     const loc = getActiveLocation(Store.state);
     if (loc && loc.barbell.has) {
-      const inc = barbellIncrement(loc.barbell);
-      const max = maxBarbellLoad(loc.barbell);
-      UI.skillWeight = Math.min(max, Math.max(loc.barbell.barWeight, UI.skillWeight + dir * inc));
+      const inc = barbellIncrement(loc);
+      const max = maxBarbellLoad(loc);
+      UI.skillWeight = Math.min(max, Math.max(primaryBarWeight(loc.barbell), UI.skillWeight + dir * inc));
     } else {
       const inc = LIFT_INCREMENT[s.liftId] || 5;
       UI.skillWeight = Math.max(0, UI.skillWeight + dir * inc);
@@ -1169,15 +1269,15 @@ const App = {
     const loc = getActiveLocation(Store.state);
     const step = dir > 0 ? 1 : -1;
     if (loc && ex.equip.includes('kettlebell')) {
-      UI.skillWeightsC[i] = stepOwnedWeight(loc.kettlebells.weights, UI.skillWeightsC[i], step);
+      UI.skillWeightsC[i] = stepOwnedWeight(kbWeightNumbers(loc), UI.skillWeightsC[i], step);
     } else if (loc && ex.equip.includes('dumbbell_pair')) {
       UI.skillWeightsC[i] = stepOwnedWeight(dbPairWeightNumbers(loc), UI.skillWeightsC[i], step);
     } else if (loc && ex.equip.includes('dumbbell')) {
       UI.skillWeightsC[i] = stepOwnedWeight(dbWeightNumbers(loc), UI.skillWeightsC[i], step);
     } else if (loc && ex.equip.includes('barbell') && loc.barbell.has) {
-      const inc = barbellIncrement(loc.barbell);
-      const max = maxBarbellLoad(loc.barbell);
-      UI.skillWeightsC[i] = Math.min(max, Math.max(loc.barbell.barWeight, UI.skillWeightsC[i] + step * inc));
+      const inc = barbellIncrement(loc);
+      const max = maxBarbellLoad(loc);
+      UI.skillWeightsC[i] = Math.min(max, Math.max(primaryBarWeight(loc.barbell), UI.skillWeightsC[i] + step * inc));
     } else {
       UI.skillWeightsC[i] = Math.max(0, UI.skillWeightsC[i] + step * 5);
     }

@@ -1,14 +1,14 @@
-const CACHE_NAME = 'wodshed-v13';
+const CACHE_NAME = 'wodshed-v14';
 const SHELL = [
   './',
   './index.html',
   './manifest.json',
-  './css/styles.css?v=15',
-  './js/data.js?v=15',
-  './js/storage.js?v=15',
-  './js/engine.js?v=15',
-  './js/timer.js?v=15',
-  './js/app.js?v=15',
+  './css/styles.css?v=16',
+  './js/data.js?v=16',
+  './js/storage.js?v=16',
+  './js/engine.js?v=16',
+  './js/timer.js?v=16',
+  './js/app.js?v=16',
   './icons/icon-192.png',
   './icons/icon-512.png',
 ];

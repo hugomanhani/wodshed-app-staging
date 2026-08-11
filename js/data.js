@@ -5,52 +5,46 @@ const ACTIVITY_TYPES = [
   'Jiu-Jitsu', 'Run', 'Bike', 'Swim', 'Yoga', 'Hike', 'Climbing', 'Boxing', 'Soccer', 'Basketball', 'Other',
 ];
 
-// Barbell, kettlebells, and dumbbells are NOT simple toggles — each location
-// tracks granular load info for them (bar weight + plate inventory, kettlebell
-// mode + owned weights, dumbbell owned weights). See storage.js blankLocation().
-const EQUIPMENT_GROUPS = [
-  { id: 'barbell_plates', label: 'Rack & Bench', items: [
-    { id: 'rack', label: 'Squat Rack / Rig' },
-    { id: 'bench', label: 'Weight Bench' },
-  ]},
-  { id: 'gymnastics', label: 'Pull-Up / Gymnastics', items: [
-    { id: 'pullupbar', label: 'Pull-Up Bar' },
-    { id: 'rings', label: 'Gymnastics Rings' },
-    { id: 'parallettes', label: 'Parallettes' },
-    { id: 'rope', label: 'Climbing Rope' },
-  ]},
-  { id: 'machines', label: 'Cardio & Machines', items: [
-    { id: 'run_outdoor', label: 'Running outdoors is an option?' },
-    { id: 'rower', label: 'Rower' },
-    { id: 'bike', label: 'Assault / Echo Bike' },
-    { id: 'skierg', label: 'Ski Erg' },
-    { id: 'treadmill', label: 'Treadmill' },
-  ]},
-  { id: 'plyo', label: 'Plyo & Throwing', items: [
-    { id: 'plyobox', label: 'Plyo Box' },
-    { id: 'medball', label: 'Medicine Ball / Wall Ball' },
-    { id: 'slamball', label: 'Slam Ball' },
-  ]},
-  { id: 'core_post', label: 'Core & Posterior', items: [
-    { id: 'ghd', label: 'GHD' },
-    { id: 'abmat', label: 'Ab Mat' },
-  ]},
-  { id: 'odd', label: 'Odd Object / Carries', items: [
-    { id: 'sandbag', label: 'Sandbag' },
-    { id: 'farmer', label: "Farmer's Carry Handles" },
-    { id: 'sled', label: 'Sled' },
-  ]},
-  { id: 'misc', label: 'Misc Conditioning', items: [
-    { id: 'jumprope', label: 'Jump Rope' },
-    { id: 'bands', label: 'Resistance Bands' },
-  ]},
-  { id: 'mobility', label: 'Mobility & Recovery', items: [
-    { id: 'pvc', label: 'PVC Pipe' },
-    { id: 'yogamat', label: 'Yoga Mat' },
-  ]},
+// Profile > Equipment renders this list top to bottom, one flat consistent
+// toggle per row. 'barbell' / 'bumperPlates' / 'ironPlates' / 'kbAdjustable' /
+// 'kbFixed' / 'dbAdjustable' / 'dbFixed' are complex kinds with their own
+// sub-editor (bar/plate/weight lines) — everything else is a plain toggle
+// backed by loc.simple. See storage.js blankLocation().
+const PROFILE_EQUIPMENT_LAYOUT = [
+  { kind: 'barbell', label: 'Barbell' },
+  { kind: 'bumperPlates', label: 'Bumper Plates' },
+  { kind: 'ironPlates', label: 'Iron Plates' },
+  { kind: 'simple', id: 'rack', label: 'Squat Rack' },
+  { kind: 'simple', id: 'bench', label: 'Bench' },
+  { kind: 'kbAdjustable', label: 'Kettlebell (Adjustable weight)' },
+  { kind: 'kbFixed', label: 'Kettlebell (Fixed weight)' },
+  { kind: 'dbAdjustable', label: 'Dumbbells (Adjustable weight)' },
+  { kind: 'dbFixed', label: 'Dumbbells (Fixed weight)' },
+  { kind: 'simple', id: 'pullupbar', label: 'Pull-up bar' },
+  { kind: 'simple', id: 'rings', label: 'Rings' },
+  { kind: 'simple', id: 'dipbar', label: 'Dip bar' },
+  { kind: 'simple', id: 'rope', label: 'Climbing Rope' },
+  { kind: 'simple', id: 'battlerope', label: 'Battle Rope' },
+  { kind: 'simple', id: 'rower', label: 'Rower' },
+  { kind: 'simple', id: 'bike', label: 'Air-bike' },
+  { kind: 'simple', id: 'skierg', label: 'Ski erg' },
+  { kind: 'simple', id: 'treadmill', label: 'Treadmill' },
+  { kind: 'simple', id: 'run_outdoor', label: 'Running area' },
+  { kind: 'simple', id: 'plyobox', label: 'Plyo Box' },
+  { kind: 'simple', id: 'medball', label: 'Medicine/Wall Ball' },
+  { kind: 'simple', id: 'slamball', label: 'Slam Ball' },
+  { kind: 'simple', id: 'ghd', label: 'GHD' },
+  { kind: 'simple', id: 'abmat', label: 'Abmat' },
+  { kind: 'simple', id: 'sandbag', label: 'Sandbag' },
+  { kind: 'simple', id: 'sled', label: 'Sled' },
+  { kind: 'simple', id: 'pegboard', label: 'Pegboard' },
+  { kind: 'simple', id: 'jumprope', label: 'Jump rope' },
+  { kind: 'simple', id: 'bands', label: 'Resistance bands' },
+  { kind: 'simple', id: 'pvc', label: 'PVC Pipe' },
+  { kind: 'simple', id: 'yogamat', label: 'Yoga Mat' },
 ];
 
-const ALL_SIMPLE_EQUIPMENT = EQUIPMENT_GROUPS.flatMap(g => g.items.map(i => i.id));
+const ALL_SIMPLE_EQUIPMENT = PROFILE_EQUIPMENT_LAYOUT.filter(x => x.kind === 'simple').map(x => x.id);
 
 // Bar types a garage or commercial gym might have on hand. Picking one sets
 // a sensible default bar weight; the stepper below it still allows fine
@@ -65,12 +59,12 @@ const BAR_TYPES = [
   { id: 'custom', label: 'Other', weight: null },
 ];
 
-// Auto-filled the first time a location's barbell is switched on — a
+// Auto-filled the first time Bumper/Iron Plates is switched on — a
 // reasonable default garage-gym plate set (one pair each), easy to add to.
 const DEFAULT_PLATE_SET = [
-  { weight: 45, count: 2, type: 'bumper' }, { weight: 25, count: 2, type: 'bumper' },
-  { weight: 15, count: 2, type: 'bumper' }, { weight: 10, count: 2, type: 'bumper' },
-  { weight: 5, count: 2, type: 'iron' }, { weight: 2.5, count: 2, type: 'iron' },
+  { weight: 45, pairs: 1, type: 'bumper' }, { weight: 25, pairs: 1, type: 'bumper' },
+  { weight: 15, pairs: 1, type: 'bumper' }, { weight: 10, pairs: 1, type: 'bumper' },
+  { weight: 5, pairs: 1, type: 'iron' }, { weight: 2.5, pairs: 1, type: 'iron' },
 ];
 const COMMON_BUMPER_WEIGHTS = [10, 15, 25, 35, 45, 55];
 const COMMON_IRON_WEIGHTS = [1.25, 2.5, 5, 10, 15, 25, 35, 45, 100];
@@ -153,7 +147,7 @@ const EXERCISES = [
   { id: 'kb_tgu', name: 'Kettlebell Turkish Get-Up', modality: 'weightlifting', equip: ['kettlebell'], focus: ['accessory'] },
   { id: 'farmer_kb', name: "Farmer's Carry (KB)", modality: 'weightlifting', equip: ['kettlebell'], focus: ['accessory', 'conditioning'] },
   { id: 'farmer_db', name: "Farmer's Carry (DB)", modality: 'weightlifting', equip: ['dumbbell'], focus: ['accessory', 'conditioning'] },
-  { id: 'farmer_handles', name: "Farmer's Carry", modality: 'weightlifting', equip: ['farmer'], focus: ['accessory', 'conditioning'] },
+  { id: 'farmer_handles', name: "Farmer's Carry", modality: 'weightlifting', equip: ['dumbbell_pair'], focus: ['accessory', 'conditioning'] },
   { id: 'mb_clean', name: 'Medicine-Ball Clean', modality: 'weightlifting', equip: ['medball'], focus: ['accessory'] },
   { id: 'wall_ball', name: 'Wall-Ball Shot', modality: 'weightlifting', equip: ['medball'], focus: ['conditioning'] },
   { id: 'slam_ball', name: 'Slam Ball', modality: 'weightlifting', equip: ['slamball'], focus: ['conditioning'] },
@@ -175,7 +169,7 @@ const EXERCISES = [
   { id: 'kipping_mu_ring', name: 'Kipping Ring Muscle-Up', modality: 'gymnastics', equip: ['rings'], focus: ['gymnastics'] },
   { id: 'ring_dip', name: 'Ring Dip', modality: 'gymnastics', equip: ['rings'], focus: ['gymnastics'] },
   { id: 'ring_row', name: 'Ring Row', modality: 'gymnastics', equip: ['rings'], focus: ['gymnastics', 'accessory'] },
-  { id: 'parallette_dip', name: 'Parallette Dip', modality: 'gymnastics', equip: ['parallettes'], focus: ['gymnastics'] },
+  { id: 'parallette_dip', name: 'Bar Dip', modality: 'gymnastics', equip: ['dipbar'], focus: ['gymnastics'] },
   { id: 'ttb', name: 'Toes-to-Bar', modality: 'gymnastics', equip: ['pullupbar'], focus: ['gymnastics', 'conditioning'] },
   { id: 'kte', name: 'Knees-to-Elbow', modality: 'gymnastics', equip: ['pullupbar'], focus: ['gymnastics'] },
   { id: 'toes_to_rings', name: 'Toes-to-Rings', modality: 'gymnastics', equip: ['rings'], focus: ['gymnastics'] },
@@ -187,7 +181,7 @@ const EXERCISES = [
   { id: 'hs_walk', name: 'Handstand Walk', modality: 'gymnastics', equip: [], focus: ['gymnastics'] },
   { id: 'strict_hspu', name: 'Strict Handstand Push-Up', modality: 'gymnastics', equip: [], focus: ['gymnastics'], tracked: true },
   { id: 'kipping_hspu', name: 'Kipping Handstand Push-Up', modality: 'gymnastics', equip: [], focus: ['gymnastics'] },
-  { id: 'deficit_hspu', name: 'Deficit Handstand Push-Up', modality: 'gymnastics', equip: ['parallettes'], focus: ['gymnastics'] },
+  { id: 'deficit_hspu', name: 'Deficit Handstand Push-Up', modality: 'gymnastics', equip: ['plyobox'], focus: ['gymnastics'] },
   { id: 'wall_walk', name: 'Wall Walk', modality: 'gymnastics', equip: [], focus: ['gymnastics'] },
   { id: 'freestanding_hs', name: 'Freestanding Handstand', modality: 'gymnastics', equip: [], focus: ['gymnastics'] },
   { id: 'hs_pirouette', name: 'Handstand Pirouette', modality: 'gymnastics', equip: [], focus: ['gymnastics'] },
