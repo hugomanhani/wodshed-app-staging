@@ -75,10 +75,18 @@ function dbPairWeightNumbers(loc) {
   return loc && loc.dumbbells ? loc.dumbbells.weights.filter(w => w.unit === 'pair').map(w => w.weight) : [];
 }
 
+// A gym can own several bar types (Oly, trap, EZ-curl...) at once. Load math
+// always anchors to the lightest owned bar — it's always achievable (swap to
+// it and add 0 plates), so it never suggests a weight nothing can hit.
+function primaryBarWeight(barbell) {
+  if (barbell && barbell.bars && barbell.bars.length) return Math.min(...barbell.bars.map(b => b.weight));
+  return 45;
+}
+
 function maxBarbellLoad(barbell) {
   if (!barbell || !barbell.has) return 0;
   const platesWeight = barbell.plates.reduce((sum, p) => sum + p.weight * 2 * Math.floor(p.count / 2), 0);
-  return barbell.barWeight + platesWeight;
+  return primaryBarWeight(barbell) + platesWeight;
 }
 
 function barbellIncrement(barbell) {
@@ -91,11 +99,12 @@ function barbellIncrement(barbell) {
 // the owned plate inventory, never exceeding the max the plates allow.
 function clampBarbellWeight(barbell, suggestion) {
   if (!barbell || !barbell.has) return suggestion;
+  const bw = primaryBarWeight(barbell);
   const max = maxBarbellLoad(barbell);
   const inc = barbellIncrement(barbell);
   let target = Math.min(suggestion, max);
-  target = barbell.barWeight + Math.floor((target - barbell.barWeight) / inc) * inc;
-  return Math.max(barbell.barWeight, target);
+  target = bw + Math.floor((target - bw) / inc) * inc;
+  return Math.max(bw, target);
 }
 
 // Snaps to the closest weight actually owned (kettlebells / dumbbells).

@@ -26,6 +26,7 @@ const UI = {
   bRoundIndex: 1, wodElapsed: 0, wodStepIndex: 0, wodRftRound: 0, wodAmrapRounds: 0, wodAmrapReps: 0,
   coreRound: 1, coreIntervalIndex: 0, corePhase: 'work', coreChecks: [], pendingResult: null, running: false,
   activityType: null, activityCustomType: '', activityDuration: 30, activityNotes: '', nextSection: null,
+  scrollPos: {}, // pill-row scroll-left by data-skey — survives the next full re-render
 };
 
 function app() { return document.getElementById('app'); }
@@ -48,6 +49,55 @@ function render() {
   if (UI.dialog) html += renderDialog();
   if (UI.sheet) html += renderSheet();
   root.innerHTML = html;
+  restorePillScroll();
+}
+
+// Every render() rebuilds #app from scratch, which would otherwise snap any
+// horizontally-scrolled pill row back to the start — including right after
+// the user drags to a chip and taps it. Re-apply the last known scrollLeft
+// (tracked per data-skey by initPillDragScroll's capture-phase listener).
+function restorePillScroll() {
+  app().querySelectorAll('.preset-row[data-skey]').forEach(row => {
+    const pos = UI.scrollPos[row.dataset.skey];
+    if (pos) row.scrollLeft = pos;
+  });
+}
+
+// Mouse click-drag scrolling for pill rows (touch already scrolls natively).
+// A drag longer than a few px suppresses the click that would otherwise fire
+// on whatever chip the cursor lands on, so dragging never accidentally
+// selects something.
+function initPillDragScroll() {
+  const root = app();
+  let drag = null;
+  let justDragged = false;
+  root.addEventListener('mousedown', (e) => {
+    const row = e.target.closest('.preset-row');
+    if (!row) return;
+    drag = { row, startX: e.clientX, startLeft: row.scrollLeft, moved: false };
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    if (Math.abs(dx) > 4) drag.moved = true;
+    drag.row.scrollLeft = drag.startLeft - dx;
+  });
+  window.addEventListener('mouseup', () => {
+    if (drag && drag.moved) justDragged = true;
+    drag = null;
+  });
+  root.addEventListener('click', (e) => {
+    if (justDragged) { e.stopPropagation(); e.preventDefault(); justDragged = false; }
+  }, true);
+  // scroll doesn't bubble, but a capture-phase listener on an ancestor still
+  // sees it fire on the way down, so this catches every pill row without
+  // needing a fresh listener per row on every re-render.
+  root.addEventListener('scroll', (e) => {
+    const row = e.target;
+    if (row.classList && row.classList.contains('preset-row') && row.dataset.skey) {
+      UI.scrollPos[row.dataset.skey] = row.scrollLeft;
+    }
+  }, true);
 }
 
 function renderShell(innerHtml, activeTab) {
@@ -107,7 +157,7 @@ function renderAddActivitySheet() {
   return `<div class="dialog-backdrop" onclick="App.closeSheet()">
     <div class="dialog" onclick="event.stopPropagation()">
       <div class="dialog-title">Log an outside activity</div>
-      <div class="preset-row" style="padding:0;margin:0 -4px">${chips}</div>
+      <div class="preset-row" data-skey="activity-types" style="padding:0;margin:0 -4px">${chips}</div>
       ${customField}
       <div class="field">
         <label>Duration (minutes)</label>
@@ -132,7 +182,7 @@ function renderAddActivitySheet() {
 function locationSwitcherHtml() {
   const locs = Object.values(Store.state.locations);
   const chips = locs.map(l => `<div class="preset-chip ${l.id === Store.state.activeLocationId ? 'active' : ''}" onclick="App.switchLocation('${l.id}')">${l.name}</div>`).join('');
-  return `<div class="preset-row">${chips}<div class="preset-chip" style="border-style:dashed" onclick="App.createLocation()">+ New Location</div></div>`;
+  return `<div class="preset-row" data-skey="locations">${chips}<div class="preset-chip" style="border-style:dashed" onclick="App.createLocation()">+ New Location</div></div>`;
 }
 
 function locationHeaderHtml(loc) {
@@ -145,11 +195,11 @@ function locationHeaderHtml(loc) {
   </div>`;
 }
 
-function weightChipListHtml(weights, addFn, removeFn, commonList) {
+function weightChipListHtml(weights, addFn, removeFn, commonList, skeyPrefix) {
   const owned = weights.map(w => `<div class="preset-chip active" style="display:flex;align-items:center;gap:6px" onclick="${removeFn}(${w})">${w} lb ✕</div>`).join('');
   const addable = commonList.filter(w => !weights.includes(w)).map(w =>
     `<div class="preset-chip" style="border-style:dashed" onclick="${addFn}(${w})">+ ${w}</div>`).join('');
-  return `<div class="preset-row" style="padding:0 0 var(--space-2)">${owned}</div><div class="preset-row" style="padding:0">${addable}</div>`;
+  return `<div class="preset-row" data-skey="${skeyPrefix}-owned" style="padding:0 0 var(--space-2)">${owned}</div><div class="preset-row" data-skey="${skeyPrefix}-add" style="padding:0">${addable}</div>`;
 }
 
 function plateGroupHtml(loc, type, label, commonList) {
@@ -165,7 +215,7 @@ function plateGroupHtml(loc, type, label, commonList) {
     </div>`).join('');
   const addable = commonList.filter(w => !loc.barbell.plates.some(p => p.type === type && p.weight === w)).map(w =>
     `<div class="preset-chip" style="border-style:dashed" onclick="App.addPlate(${w},'${type}')">+ ${w}</div>`).join('');
-  return `<div class="section-sub" style="padding:var(--space-2) 0 4px">${label}:</div>${rowsHtml}<div class="preset-row" style="padding:4px 0 0">${addable}</div>`;
+  return `<div class="section-sub" style="padding:var(--space-2) 0 4px">${label}:</div>${rowsHtml}<div class="preset-row" data-skey="plates-${type}" style="padding:4px 0 0">${addable}</div>`;
 }
 
 function barbellSectionHtml(loc) {
@@ -175,23 +225,29 @@ function barbellSectionHtml(loc) {
   </div>`;
   if (!b.has) return `<div class="equip-group"><div class="equip-group-label">Barbell & Plates</div>${toggle}</div>`;
 
-  const barType = b.barType || 'oly_m';
-  const barChips = BAR_TYPES.map(t =>
-    `<div class="preset-chip ${barType === t.id ? 'active' : ''}" onclick="App.setBarType('${t.id}')">${t.label}</div>`).join('');
+  const owned = b.bars || [];
+  const barChips = BAR_TYPES.map(t => {
+    const on = owned.some(x => x.type === t.id);
+    return `<div class="preset-chip ${on ? 'active' : ''}" onclick="App.toggleBarType('${t.id}')">${t.label}</div>`;
+  }).join('');
+  const barRows = owned.map((bar, i) => {
+    const t = BAR_TYPES.find(x => x.id === bar.type);
+    return `<div class="equip-toggle" style="cursor:default">
+      <span>${t ? t.label : bar.type}</span>
+      <div class="stepper-controls">
+        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustBarTypeWeight(${i},-5)">−</button>
+        <div class="stepper-val" style="min-width:48px;height:32px">${bar.weight}</div>
+        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustBarTypeWeight(${i},5)">+</button>
+      </div>
+    </div>`;
+  }).join('');
 
   return `<div class="equip-group">
     <div class="equip-group-label">Barbell & Plates</div>
     ${toggle}
-    <div class="section-sub" style="padding:var(--space-2) 0 4px">Bar type</div>
-    <div class="preset-row" style="padding:0 0 var(--space-2)">${barChips}</div>
-    <div class="equip-toggle" style="cursor:default">
-      <span>Bar weight</span>
-      <div class="stepper-controls">
-        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustBarWeight(-5)">−</button>
-        <div class="stepper-val" style="min-width:48px;height:32px">${b.barWeight}</div>
-        <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="App.adjustBarWeight(5)">+</button>
-      </div>
-    </div>
+    <div class="section-sub" style="padding:var(--space-2) 0 4px">Bar types owned — pick as many as you've got</div>
+    <div class="preset-row" data-skey="bar-types" style="padding:0 0 var(--space-2)">${barChips}</div>
+    ${owned.length ? barRows : `<div class="section-sub" style="padding:0 0 var(--space-2)">Pick at least one bar above so we know what it weighs.</div>`}
     ${plateGroupHtml(loc, 'bumper', 'Bumper plates owned (per pair)', COMMON_BUMPER_WEIGHTS)}
     ${plateGroupHtml(loc, 'iron', 'Iron plates owned (per pair)', COMMON_IRON_WEIGHTS)}
     <div class="card" style="margin-top:var(--space-2)"><div class="section-meta">Max loadable: <strong style="color:var(--color-text)">${maxBarbellLoad(b)} lb</strong></div></div>
@@ -204,9 +260,9 @@ function kettlebellSectionHtml(loc) {
     `<div class="preset-chip ${kb.mode === m ? 'active' : ''}" onclick="App.setKbMode('${m}')">${m === 'adjustable' ? 'Single Adjustable' : 'Multiple Fixed'}</div>`).join('');
   return `<div class="equip-group">
     <div class="equip-group-label">Kettlebells</div>
-    <div class="preset-row" style="padding:0 0 var(--space-2)">${modeChips}</div>
+    <div class="preset-row" data-skey="kb-mode" style="padding:0 0 var(--space-2)">${modeChips}</div>
     ${kb.mode === 'adjustable' ? `<div class="section-sub" style="padding-top:0">One bell — weights it can be set to. Swapping mid-set isn't realistic, so the workout won't ask for two different loads back to back.</div>` : `<div class="section-sub" style="padding-top:0">Each fixed weight you own.</div>`}
-    ${weightChipListHtml(kb.weights, 'App.addKbWeight', 'App.removeKbWeight', COMMON_KB_WEIGHTS)}
+    ${weightChipListHtml(kb.weights, 'App.addKbWeight', 'App.removeKbWeight', COMMON_KB_WEIGHTS, 'kb-weights')}
   </div>`;
 }
 
@@ -226,10 +282,10 @@ function dumbbellSectionHtml(loc) {
     `<div class="preset-chip" style="border-style:dashed" onclick="App.addDbWeight(${w})">+ ${w}</div>`).join('');
   return `<div class="equip-group">
     <div class="equip-group-label">Dumbbells</div>
-    <div class="preset-row" style="padding:0 0 var(--space-2)">${modeChips}</div>
+    <div class="preset-row" data-skey="db-mode" style="padding:0 0 var(--space-2)">${modeChips}</div>
     <div class="section-sub" style="padding-top:0">Mark each weight as a matched pair or a single unit — movements that need two hands only get prescribed if you own a pair.</div>
     ${rows}
-    <div class="preset-row" style="padding:var(--space-2) 0 0">${addable}</div>
+    <div class="preset-row" data-skey="db-add" style="padding:var(--space-2) 0 0">${addable}</div>
   </div>`;
 }
 
@@ -854,19 +910,26 @@ const App = {
   toggleBarbellHas() {
     const loc = getActiveLocation(Store.state);
     loc.barbell.has = !loc.barbell.has;
+    if (loc.barbell.has && (!loc.barbell.bars || loc.barbell.bars.length === 0)) loc.barbell.bars = [{ type: 'oly_m', weight: 45 }];
     if (loc.barbell.has && loc.barbell.plates.length === 0) loc.barbell.plates = DEFAULT_PLATE_SET.map(p => ({ ...p }));
     Store.save(); render();
   },
-  adjustBarWeight(d) {
+  toggleBarType(id) {
     const loc = getActiveLocation(Store.state);
-    loc.barbell.barWeight = Math.min(55, Math.max(15, loc.barbell.barWeight + d));
+    if (!loc.barbell.bars) loc.barbell.bars = [];
+    const idx = loc.barbell.bars.findIndex(x => x.type === id);
+    if (idx >= 0) {
+      loc.barbell.bars.splice(idx, 1);
+    } else {
+      const t = BAR_TYPES.find(x => x.id === id);
+      loc.barbell.bars.push({ type: id, weight: (t && t.weight != null) ? t.weight : 45 });
+    }
     Store.save(); render();
   },
-  setBarType(id) {
+  adjustBarTypeWeight(i, d) {
     const loc = getActiveLocation(Store.state);
-    loc.barbell.barType = id;
-    const t = BAR_TYPES.find(x => x.id === id);
-    if (t && t.weight != null) loc.barbell.barWeight = t.weight;
+    const bar = loc.barbell.bars[i];
+    bar.weight = Math.min(65, Math.max(10, bar.weight + d));
     Store.save(); render();
   },
   addPlate(weight, type) {
@@ -1259,7 +1322,7 @@ const App = {
   },
 };
 
-document.addEventListener('DOMContentLoaded', () => App.init());
+document.addEventListener('DOMContentLoaded', () => { initPillDragScroll(); App.init(); });
 
 // iOS Safari sometimes reports a stale env(safe-area-inset-*) on first paint
 // in standalone PWA mode — the fixed bottom nav sits slightly high until the

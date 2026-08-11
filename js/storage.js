@@ -21,7 +21,7 @@ function blankLocation(name) {
   return {
     id: newLocationId(), name,
     simple: ['run_outdoor'], // outdoor running defaults to available — opt out, not opt in
-    barbell: { has: false, barWeight: 45, barType: 'oly_m', plates: [] },
+    barbell: { has: false, bars: [], plates: [] }, // bars: [{type, weight}] — can own more than one
     kettlebells: { mode: 'fixed', weights: [] },
     dumbbells: { mode: 'fixed', weights: [] }, // weights: [{weight, unit: 'pair'|'single'}]
   };
@@ -36,7 +36,7 @@ function locationFromFlatEquipment(name, flatEquip) {
   // saves keep behaving exactly like they did (run was always available).
   if (!loc.simple.includes('run_outdoor')) loc.simple.push('run_outdoor');
   if (flatEquip.includes('barbell')) {
-    loc.barbell = { has: true, barWeight: 45, barType: 'oly_m', plates: DEFAULT_PLATE_SET.map(p => ({ ...p })) };
+    loc.barbell = { has: true, bars: [{ type: 'oly_m', weight: 45 }], plates: DEFAULT_PLATE_SET.map(p => ({ ...p })) };
   }
   if (flatEquip.includes('kettlebell')) {
     loc.kettlebells = { mode: 'fixed', weights: [26, 35, 44] };
@@ -81,6 +81,14 @@ function loadState() {
     state.locations = { [loc.id]: loc };
     state.activeLocationId = loc.id;
   }
+  // Migrate the older single-bar shape ({barType, barWeight}) to bars[].
+  Object.values(state.locations).forEach(loc => {
+    if (loc.barbell && !loc.barbell.bars) {
+      loc.barbell.bars = loc.barbell.has ? [{ type: loc.barbell.barType || 'oly_m', weight: loc.barbell.barWeight || 45 }] : [];
+      delete loc.barbell.barType;
+      delete loc.barbell.barWeight;
+    }
+  });
   return state;
 }
 
