@@ -21,7 +21,7 @@ function blankLocation(name) {
   return {
     id: newLocationId(), name,
     simple: ['run_outdoor'], // outdoor running defaults to available — opt out, not opt in
-    barbell: { has: false, barWeight: 45, plates: [] },
+    barbell: { has: false, barWeight: 45, barType: 'oly_m', plates: [] },
     kettlebells: { mode: 'fixed', weights: [] },
     dumbbells: { mode: 'fixed', weights: [] }, // weights: [{weight, unit: 'pair'|'single'}]
   };
@@ -36,7 +36,7 @@ function locationFromFlatEquipment(name, flatEquip) {
   // saves keep behaving exactly like they did (run was always available).
   if (!loc.simple.includes('run_outdoor')) loc.simple.push('run_outdoor');
   if (flatEquip.includes('barbell')) {
-    loc.barbell = { has: true, barWeight: 45, plates: DEFAULT_PLATE_SET.map(p => ({ ...p })) };
+    loc.barbell = { has: true, barWeight: 45, barType: 'oly_m', plates: DEFAULT_PLATE_SET.map(p => ({ ...p })) };
   }
   if (flatEquip.includes('kettlebell')) {
     loc.kettlebells = { mode: 'fixed', weights: [26, 35, 44] };

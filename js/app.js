@@ -175,9 +175,15 @@ function barbellSectionHtml(loc) {
   </div>`;
   if (!b.has) return `<div class="equip-group"><div class="equip-group-label">Barbell & Plates</div>${toggle}</div>`;
 
+  const barType = b.barType || 'oly_m';
+  const barChips = BAR_TYPES.map(t =>
+    `<div class="preset-chip ${barType === t.id ? 'active' : ''}" onclick="App.setBarType('${t.id}')">${t.label}</div>`).join('');
+
   return `<div class="equip-group">
     <div class="equip-group-label">Barbell & Plates</div>
     ${toggle}
+    <div class="section-sub" style="padding:var(--space-2) 0 4px">Bar type</div>
+    <div class="preset-row" style="padding:0 0 var(--space-2)">${barChips}</div>
     <div class="equip-toggle" style="cursor:default">
       <span>Bar weight</span>
       <div class="stepper-controls">
@@ -227,25 +233,26 @@ function dumbbellSectionHtml(loc) {
   </div>`;
 }
 
-function simpleGroupsHtml(loc) {
-  return EQUIPMENT_GROUPS.map(g => {
-    const rows = g.items.map(it => {
-      const on = loc.simple.includes(it.id);
-      return `<div class="equip-toggle" onclick="App.toggleSimpleEquip('${it.id}')">
-        <span>${it.label}</span><div class="switch ${on ? 'on' : ''}"></div>
-      </div>`;
-    }).join('');
-    const note = g.id === 'running_pref'
-      ? `<div class="section-sub" style="padding:0 0 var(--space-2)">Off if outdoor running isn't realistic for you (injury, no safe route, weather). If you own a treadmill (toggle it on below) Run still shows up — this is just about outdoors. With both off, WODs use another conditioning movement instead.</div>` : '';
-    return `<div class="equip-group"><div class="equip-group-label">${g.label}</div>${note}${rows}</div>`;
+function simpleGroupHtml(g, loc) {
+  const rows = g.items.map(it => {
+    const on = loc.simple.includes(it.id);
+    return `<div class="equip-toggle" onclick="App.toggleSimpleEquip('${it.id}')">
+      <span>${it.label}</span><div class="switch ${on ? 'on' : ''}"></div>
+    </div>`;
   }).join('');
+  const note = g.id === 'machines'
+    ? `<div class="section-sub" style="padding:0 0 var(--space-2)">Turn off "Running outdoors" if it isn't realistic for you (injury, no safe route, weather) — Run still shows up if you own a treadmill. With both off, WODs use another conditioning movement instead.</div>` : '';
+  return `<div class="equip-group"><div class="equip-group-label">${g.label}</div>${note}${rows}</div>`;
 }
 
 function locationEditorHtml(loc) {
+  const rackBench = EQUIPMENT_GROUPS.find(g => g.id === 'barbell_plates');
+  const restGroups = EQUIPMENT_GROUPS.filter(g => g.id !== 'barbell_plates');
   return `${barbellSectionHtml(loc)}
+    ${simpleGroupHtml(rackBench, loc)}
     ${kettlebellSectionHtml(loc)}
     ${dumbbellSectionHtml(loc)}
-    ${simpleGroupsHtml(loc)}`;
+    ${restGroups.map(g => simpleGroupHtml(g, loc)).join('')}`;
 }
 
 function renderOnboarding() {
@@ -855,10 +862,17 @@ const App = {
     loc.barbell.barWeight = Math.min(55, Math.max(15, loc.barbell.barWeight + d));
     Store.save(); render();
   },
+  setBarType(id) {
+    const loc = getActiveLocation(Store.state);
+    loc.barbell.barType = id;
+    const t = BAR_TYPES.find(x => x.id === id);
+    if (t && t.weight != null) loc.barbell.barWeight = t.weight;
+    Store.save(); render();
+  },
   addPlate(weight, type) {
     const loc = getActiveLocation(Store.state);
     if (loc.barbell.plates.some(p => p.weight === weight && p.type === type)) return;
-    loc.barbell.plates.push({ weight, count: 4, type });
+    loc.barbell.plates.push({ weight, count: 2, type });
     loc.barbell.plates.sort((a, b) => b.weight - a.weight);
     Store.save(); render();
   },

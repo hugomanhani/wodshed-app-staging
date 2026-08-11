@@ -9,9 +9,6 @@ const ACTIVITY_TYPES = [
 // tracks granular load info for them (bar weight + plate inventory, kettlebell
 // mode + owned weights, dumbbell owned weights). See storage.js blankLocation().
 const EQUIPMENT_GROUPS = [
-  { id: 'running_pref', label: 'Running', items: [
-    { id: 'run_outdoor', label: 'Running outdoors is an option?' },
-  ]},
   { id: 'barbell_plates', label: 'Rack & Bench', items: [
     { id: 'rack', label: 'Squat Rack / Rig' },
     { id: 'bench', label: 'Weight Bench' },
@@ -22,7 +19,8 @@ const EQUIPMENT_GROUPS = [
     { id: 'parallettes', label: 'Parallettes' },
     { id: 'rope', label: 'Climbing Rope' },
   ]},
-  { id: 'machines', label: 'Conditioning Machines', items: [
+  { id: 'machines', label: 'Cardio & Machines', items: [
+    { id: 'run_outdoor', label: 'Running outdoors is an option?' },
     { id: 'rower', label: 'Rower' },
     { id: 'bike', label: 'Assault / Echo Bike' },
     { id: 'skierg', label: 'Ski Erg' },
@@ -54,12 +52,25 @@ const EQUIPMENT_GROUPS = [
 
 const ALL_SIMPLE_EQUIPMENT = EQUIPMENT_GROUPS.flatMap(g => g.items.map(i => i.id));
 
+// Bar types a garage or commercial gym might have on hand. Picking one sets
+// a sensible default bar weight; the stepper below it still allows fine
+// adjustment for bars that don't match the catalog exactly.
+const BAR_TYPES = [
+  { id: 'oly_m', label: "Men's Olympic", weight: 45 },
+  { id: 'oly_w', label: "Women's Olympic", weight: 35 },
+  { id: 'technique', label: 'Technique Bar', weight: 15 },
+  { id: 'ez_curl', label: 'EZ-Curl (W) Bar', weight: 18 },
+  { id: 'trap_hex', label: 'Trap / Hex Bar', weight: 45 },
+  { id: 'ssb', label: 'Safety Squat Bar', weight: 65 },
+  { id: 'custom', label: 'Other', weight: null },
+];
+
 // Auto-filled the first time a location's barbell is switched on — a
-// reasonable default garage-gym plate set, easy to edit down from there.
+// reasonable default garage-gym plate set (one pair each), easy to add to.
 const DEFAULT_PLATE_SET = [
-  { weight: 45, count: 4, type: 'bumper' }, { weight: 25, count: 4, type: 'bumper' },
-  { weight: 15, count: 2, type: 'bumper' }, { weight: 10, count: 4, type: 'bumper' },
-  { weight: 5, count: 4, type: 'iron' }, { weight: 2.5, count: 4, type: 'iron' },
+  { weight: 45, count: 2, type: 'bumper' }, { weight: 25, count: 2, type: 'bumper' },
+  { weight: 15, count: 2, type: 'bumper' }, { weight: 10, count: 2, type: 'bumper' },
+  { weight: 5, count: 2, type: 'iron' }, { weight: 2.5, count: 2, type: 'iron' },
 ];
 const COMMON_BUMPER_WEIGHTS = [10, 15, 25, 35, 45, 55];
 const COMMON_IRON_WEIGHTS = [1.25, 2.5, 5, 10, 15, 25, 35, 45, 100];
