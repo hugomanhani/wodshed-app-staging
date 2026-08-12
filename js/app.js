@@ -211,10 +211,13 @@ function toggleRow(label, on, onClick) {
   return `<div class="equip-toggle" onclick="${onClick}"><span>${label}</span><div class="switch ${on ? 'on' : ''}"></div></div>`;
 }
 
-function selectAllRowHtml(selectFn, deselectFn) {
-  return `<div style="display:flex;gap:8px;padding:0 var(--space-4) var(--space-4)">
-    <button class="btn btn-secondary" style="flex:1" onclick="${selectFn}">Select All</button>
-    <button class="btn btn-secondary" style="flex:1" onclick="${deselectFn}">Deselect All</button>
+function selectAllRowHtml(count, total, itemLabel, selectFn, deselectFn) {
+  const allSelected = total > 0 && count >= total;
+  const label = allSelected ? 'Deselect all' : 'Select all';
+  const fn = allSelected ? deselectFn : selectFn;
+  return `<div class="select-all-row">
+    <span class="select-all-count">${count} of ${total} ${itemLabel} selected</span>
+    <button class="link-btn" onclick="${fn}">${label}</button>
   </div>`;
 }
 
@@ -231,20 +234,21 @@ function unitsRowHtml() {
 }
 
 // A deletable "line" for one owned variant (a bar type, a plate weight) with
-// 1-2 steppable fields — the shared pattern behind Barbell and Bumper/Iron Plates.
+// 1-2 steppable fields shown side by side — the shared pattern behind
+// Barbell and Bumper/Iron Plates.
 function gearLineHtml(label, fields, removeFn) {
   const fieldsHtml = fields.map(f => `
-    <div class="gear-line-row">
+    <div class="gear-line-field">
       <span class="gear-line-label">${f.label}</span>
       <div class="stepper-controls">
         <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="${f.decFn}">−</button>
-        <div class="stepper-val" style="min-width:44px;height:32px;font-size:16px">${f.value}</div>
+        <div class="stepper-val" style="min-width:40px;height:32px;font-size:16px">${f.value}</div>
         <button class="stepper-btn" style="width:32px;height:32px;font-size:16px" onclick="${f.incFn}">+</button>
       </div>
     </div>`).join('');
   return `<div class="gear-line">
     <div class="gear-line-head"><span>${label}</span><button class="info-btn" onclick="${removeFn}">✕</button></div>
-    ${fieldsHtml}
+    <div class="gear-line-fields">${fieldsHtml}</div>
   </div>`;
 }
 
@@ -273,8 +277,7 @@ function plateBlockHtml(loc, kind, label, commonList) {
   if (!p.has) return `<div class="equip-group">${toggleRow(label, false, `App.togglePlateGroup('${kind}')`)}</div>`;
   const addPills = commonList.filter(w => !p.items.some(x => x.weight === w))
     .map(w => `<div class="preset-chip" style="border-style:dashed" onclick="App.addPlateItem('${kind}',${w})">+ ${fmtW(w)}</div>`).join('');
-  const lines = p.items.map((item, i) => gearLineHtml('Plate', [
-    { label: 'Weight', value: fmtW(item.weight), decFn: `App.adjustPlateWeight('${kind}',${i},-2.5)`, incFn: `App.adjustPlateWeight('${kind}',${i},2.5)` },
+  const lines = p.items.map((item, i) => gearLineHtml(fmtWLabel(item.weight), [
     { label: 'Pairs', value: item.pairs, decFn: `App.adjustPlatePairs('${kind}',${i},-1)`, incFn: `App.adjustPlatePairs('${kind}',${i},1)` },
   ], `App.removePlateItem('${kind}',${i})`)).join('');
   return `<div class="equip-group">
@@ -317,6 +320,15 @@ function dbBlockHtml(loc, kind, label) {
   </div>`;
 }
 
+const COMPLEX_EQUIPMENT_KINDS = ['barbell', 'bumperPlates', 'ironPlates', 'kbAdjustable', 'kbFixed', 'dbAdjustable', 'dbFixed'];
+
+function equipmentSelectedCount(loc) {
+  return loc.simple.length + COMPLEX_EQUIPMENT_KINDS.filter(k => loc[k].has).length;
+}
+function equipmentTotalCount() {
+  return ALL_SIMPLE_EQUIPMENT.length + COMPLEX_EQUIPMENT_KINDS.length;
+}
+
 function equipmentBlocksHtml(loc) {
   return PROFILE_EQUIPMENT_LAYOUT.map(item => {
     if (item.kind === 'simple') return `<div class="equip-group">${toggleRow(item.label, loc.simple.includes(item.id), `App.toggleSimpleEquip('${item.id}')`)}</div>`;
@@ -347,7 +359,7 @@ function renderProfileEquipment(loc) {
   return `${locationSwitcherHtml()}
   ${locationHeaderHtml(loc)}
   ${unitsRowHtml()}
-  ${selectAllRowHtml('App.selectAllEquipment()', 'App.deselectAllEquipment()')}
+  ${selectAllRowHtml(equipmentSelectedCount(loc), equipmentTotalCount(), 'equipment', 'App.selectAllEquipment()', 'App.deselectAllEquipment()')}
   ${equipmentBlocksHtml(loc)}`;
 }
 
@@ -356,16 +368,16 @@ function renderProfileSkills() {
   const sorted = [...EXERCISES].sort((a, b) => a.name.localeCompare(b.name));
   const rows = sorted.map(ex => `<div class="equip-group">${toggleRow(ex.name, !disabled.includes(ex.id), `App.toggleSkill('${ex.id}')`)}</div>`).join('');
   return `<div class="section-sub">Every movement WODshed can prescribe — turn one off to keep it out of your workouts entirely.</div>
-  ${selectAllRowHtml('App.selectAllSkills()', 'App.deselectAllSkills()')}
+  ${selectAllRowHtml(EXERCISES.length - disabled.length, EXERCISES.length, 'skills', 'App.selectAllSkills()', 'App.deselectAllSkills()')}
   ${rows}`;
 }
 
 function renderProfileTab() {
   const loc = getActiveLocation(Store.state);
   const tab = UI.profileTab;
-  const switcher = `<div class="preset-row" data-skey="profile-tabs">
-    <div class="preset-chip ${tab === 'equipment' ? 'active' : ''}" onclick="App.setProfileTab('equipment')">Equipment</div>
-    <div class="preset-chip ${tab === 'skills' ? 'active' : ''}" onclick="App.setProfileTab('skills')">Skills</div>
+  const switcher = `<div class="profile-tabs">
+    <div class="profile-tab ${tab === 'equipment' ? 'active' : ''}" onclick="App.setProfileTab('equipment')">Equipment</div>
+    <div class="profile-tab ${tab === 'skills' ? 'active' : ''}" onclick="App.setProfileTab('skills')">Skills</div>
   </div>`;
   return `<div class="section-heading">Profile</div>
   <div class="section-sub">${tab === 'equipment' ? 'Switch locations for a garage day vs. a commercial-gym day — changes apply to your next generated day.' : 'Choose which movements are fair game for your workouts.'}</div>
@@ -997,12 +1009,6 @@ const App = {
   removePlateItem(kind, i) {
     const loc = getActiveLocation(Store.state);
     loc[kind].items.splice(i, 1);
-    Store.save(); render();
-  },
-  adjustPlateWeight(kind, i, d) {
-    const loc = getActiveLocation(Store.state);
-    const item = loc[kind].items[i];
-    item.weight = Math.max(1, Math.round((item.weight + d) * 2) / 2);
     Store.save(); render();
   },
   adjustPlatePairs(kind, i, d) {

@@ -144,18 +144,30 @@ button { font-family: var(--font); }
 
 .gear-line { background: var(--color-surface); border-radius: var(--radius-sm); padding: var(--space-3); margin: 0 var(--space-4) var(--space-2); display: flex; flex-direction: column; gap: 8px; }
 .gear-line-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; }
-.gear-line-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.gear-line-fields { display: flex; gap: 8px; }
+.gear-line-field { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .gear-line-label { font-size: 12px; color: var(--color-neutral-500); }
 .switch { width: 40px; height: 24px; border-radius: 999px; background: var(--color-neutral-800); position: relative; flex-shrink: 0; transition: background .15s; }
 .switch.on { background: var(--color-accent); }
 .switch::after { content:''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: white; transition: left .15s; }
 .switch.on::after { left: 19px; }
 
-.preset-row { display: flex; gap: var(--space-2); overflow-x: auto; padding: 0 var(--space-4) var(--space-4); cursor: grab; scrollbar-width: none; -ms-overflow-style: none; }
+/* Page-level filter switcher — a full-width segmented control, deliberately
+   styled unlike the small pill rows below it (locations, weights, etc.) so
+   it reads as "this changes what the whole page shows," not just another chip row. */
+.profile-tabs { display: flex; gap: 4px; margin: 0 var(--space-4) var(--space-4); padding: 4px; background: var(--color-surface); border-radius: var(--radius-md); }
+.profile-tab { flex: 1; text-align: center; padding: 12px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700; color: var(--color-neutral-400); cursor: pointer; transition: background .15s, color .15s; }
+.profile-tab.active { background: var(--color-accent); color: #16121f; }
+
+.preset-row { display: flex; gap: 8px; overflow-x: auto; padding: 0 var(--space-4) var(--space-4); cursor: grab; scrollbar-width: none; -ms-overflow-style: none; }
 .preset-row::-webkit-scrollbar { display: none; }
 .preset-row:active { cursor: grabbing; }
 .preset-chip { flex-shrink: 0; padding: 10px 14px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-divider); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; user-select: none; }
 .preset-chip.active { background: var(--color-accent); color: #16121f; border-color: var(--color-accent); }
+
+.select-all-row { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-4) var(--space-4); }
+.select-all-count { font-size: 12px; color: var(--color-neutral-500); }
+.link-btn { background: none; border: none; padding: 0; font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--color-accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 
 .history-item { display: flex; flex-direction: column; gap: 6px; }
 .history-top { display: flex; align-items: center; justify-content: space-between; }
